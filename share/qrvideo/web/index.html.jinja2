@@ -43,7 +43,24 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
 </style>
 <body class="container">
 <script>
+let escape_key_code = 27;
+var hold_key_down = false;
+document.addEventListener("keydown", function(e) {
+  if (e.keyCode == escape_key_code) {
+    hold_key_down = true;
+  }
+});
+document.addEventListener("keyup", function(e) {
+  if (e.keyCode == escape_key_code) {
+    hold_key_down = false;
+  }
+});
+
+var channel_force_on = {};
+
 function addChannel(text, key) {
+  channel_force_on[key] = false;
+
   var div = document.createElement("div");
   div.classList.add("channel");
   div.style = "visibility: hidden;";
@@ -54,16 +71,20 @@ function addChannel(text, key) {
 
   document.addEventListener("keydown", function(e) {
       if (e.key == key) {
+        if (hold_key_down) {
+          channel_force_on[e.key] = !channel_force_on[e.key];
+        }
         div.style = "visibility: visible;";
       }
     });
 
   document.addEventListener("keyup", function(e) {
-      if (e.key == key) {
+      if (e.key == key && !channel_force_on[e.key]) {
         div.style = "visibility: hidden;";
       }
     });
 }
+
 {% for channel in channels %}
 addChannel("{{channel.text}}", "{{channel.key}}");
 {% endfor %}
