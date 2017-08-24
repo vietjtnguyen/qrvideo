@@ -37,8 +37,8 @@ def main():
             '(default: size of first image in list)')
     parser.add_argument(
         '--frame-rate',
-        dest='frame_rate', type=float, default=8,
-        help='sets the output video framerate (default: 8)')
+        dest='frame_rate', type=float, default=4,
+        help='sets the output video framerate (default: 4)')
     parser.add_argument(
         '-o', '--output',
         dest='output', type=str, required=True,
