@@ -40,6 +40,16 @@ def main():
         dest='frame_rate', type=float, default=4,
         help='sets the output video framerate (default: 4)')
     parser.add_argument(
+        '--gravity',
+        dest='gravity', type=str, default='SouthWest',
+        choices=[
+            'NorthWest', 'North', 'NorthEast', 'West', 'Center', 'East',
+            'SouthWest', 'South', 'SouthEast',
+        ],
+        help= \
+            'sets the "gravity" for where the QR code is composited (default: '
+            'SouthWest)')
+    parser.add_argument(
         '-o', '--output',
         dest='output', type=str, required=True,
         help='output file, "output.mp4" typically works nicely (required)')
@@ -70,9 +80,9 @@ def main():
         composite_script_file.write(
             'bash -c "'
                 'qrencode -s 2 -m 1 -o - \'{}\' | '
-                'gm composite png:- \'{}\' -resize {}x{} png:-'
+                'gm composite png:- -gravity {} \'{}\' -resize {}x{} png:-'
             '"\n'.format(
-                image, image_path, args.size[0], args.size[1]))
+                image, args.gravity, image_path, args.size[0], args.size[1]))
     composite_script_file.close()
 
     proc1 = subprocess.Popen(
@@ -83,8 +93,9 @@ def main():
         [
             'ffmpeg',
             '-f', 'image2pipe', # images come in raw over the pipe
-            '-i', '-', # read from stdin
             '-framerate', str(args.frame_rate), # sets output framerate
+            '-i', '-', # read from stdin
+            '-r', str(args.frame_rate), # sets output framerate
             '-c:v', 'libx264', # H.264 encoding
             '-pix_fmt', 'yuv420p', # specific pixel format, supports QuickTime
             args.output,
