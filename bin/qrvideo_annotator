@@ -1,0 +1,80 @@
+#!/usr/bin/env python3
+import argparse
+import http.server
+import os.path
+import socketserver
+import sys
+import tempfile
+
+from jinja2 import Template
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description= \
+            'Starts an HTTP server that serves a browser based annotation '
+            'tool that displays QR codes containing some arbitrary text data '
+            'when a keyboard key is pressed.')
+
+    parser.add_argument(
+        '-p', '--port',
+        dest='port', type=int, default=8000,
+        help='HTTP server port (default: 8000)')
+    parser.add_argument(
+        '-R', '--web-root',
+        dest='web_root', default='../share/qrvideo/web',
+        help= \
+            'path to root of web browser files (default: '
+            '../share/qrvideo/web)')
+    parser.add_argument(
+        '-S', '--size',
+        dest='size', type=int, default=100,
+        help='QR code size in pixels (default: 100)')
+    parser.add_argument(
+        'channels',
+        nargs='+',
+        type=lambda x: tuple(y.strip() for y in x.split(':')),
+        help= \
+            'channels to make available in annotator, specified as a two item '
+            'comma separated list where the first item is the key character '
+            'to press to activate that channel and the second item is the '
+            'text content of the QR code displayed for the channel when the '
+            'key character is pressed; for example: "r:red", "g:green", '
+            '"b:blue"')
+
+    args = parser.parse_args()
+
+    template_path = os.path.join(
+        os.path.dirname(__file__),
+        args.web_root,
+        'index.html.jinja2')
+    template_file = open(template_path, 'r')
+    template = Template(template_file.read())
+
+    session_web_root = tempfile.TemporaryDirectory()
+    session_index_html_path = os.path.join(session_web_root.name, 'index.html')
+    session_index_html = open(session_index_html_path , 'w')
+    session_index_html.write(template.render(**{
+        'channels': [
+            {'key': x[0], 'text': x[1]} for x in args.channels
+        ],
+        'qr_size': args.size,
+    }))
+    session_index_html.close()
+    sys.stderr.write(
+        'created temp web page at {}\n'.format(session_index_html_path))
+
+    os.chdir(session_web_root.name)
+
+    Handler = http.server.SimpleHTTPRequestHandler
+    httpd = socketserver.TCPServer(("", args.port), Handler)
+    httpd.allow_reuse_address = True
+    sys.stderr.write('serving at port {}\n'.format(args.port))
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    httpd.server_close()
+
+if __name__ == '__main__':
+    main()
