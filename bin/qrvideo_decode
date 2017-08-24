@@ -1,0 +1,143 @@
+#!/usr/bin/env python3
+import argparse
+import atexit
+import functools
+import os
+import os.path
+import subprocess
+import sys
+import tempfile
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description= \
+            '"Decodes" a video with embedded QR codes by finding the QR '
+            'codes, decoding them, assuming that the first QR code is the key '
+            '(e.g. frame name), and producing a dataset which counts other QR '
+            'codes in the frame coincidental with the key.')
+
+    parser.add_argument(
+        '-f', '--frame-folder',
+        dest='frame_folder', default=None,
+        help= \
+            'folder for exploded frames (default: create a random temp '
+            'folder)')
+    parser.add_argument(
+        '-S', '--skip-frame-extraction',
+        dest='skip_frame_extraction', default=False, action='store_true',
+        help= \
+            'skips frame extraction and uses the frames specified by '
+            '--frame-folder')
+    parser.add_argument(
+        '-s', '--frame-scale-factor',
+        dest='frame_scale_factor', type=float, default=1.0,
+        help= \
+            'resizes extracted frames by the provided factor (default: 1.0)')
+    parser.add_argument(
+        '-q', '--frame-quality',
+        dest='frame_quality', type=int, default=2,
+        help= \
+            'sets the output frame quality (e.g. JPEG quality), ranges from '
+            '1 to 31, lower is better quality (default: 2)')
+    parser.add_argument(
+        '-x', '--frame-extension',
+        dest='frame_ext', default='jpg',
+        help= \
+            'sets the output frame extension and thus frame image format '
+            '(default: jpg)')
+    parser.add_argument(
+        '-n', '--frame-interval',
+        dest='frame_interval', type=int, default=1,
+        help= \
+            'process every other frame for QR codes (all frames are still '
+            'extracted by ffmpeg) (default: 1, i.e. every frame)')
+    parser.add_argument(
+        '-v', '--verbose',
+        dest='verbose', action='store_true', default=False,
+        help='be more verbose')
+    parser.add_argument(
+        'video',
+        type=str,
+        help='input video file')
+
+    args = parser.parse_args()
+
+    if args.frame_folder is None:
+        if args.skip_frame_extraction:
+            raise RuntimeError(
+                '--skip-frame-extraction requires --frame-folder to be '
+                'specified')
+        args.frame_folder = tempfile.mkdtemp()
+
+    if not args.skip_frame_extraction:
+        explode_proc = subprocess.Popen(
+            [
+                'ffmpeg',
+                '-i', args.video, # specify input video
+                '-q:v', str(args.frame_quality), # sets output frame quality
+                '-vf', 'scale=iw*{0}:ih*{0}'.format(args.frame_scale_factor),
+                '{}/frame%06d.{}'.format(args.frame_folder, args.frame_ext),
+            ])
+        try:
+            explode_proc.wait()
+        except KeyboardInterrupt:
+            return explode_proc.returncode
+
+    find_proc = subprocess.Popen(
+        ['find', args.frame_folder, '-type', 'f'],
+        stdout=subprocess.PIPE)
+    awk_proc = subprocess.Popen(
+        ['awk', '(NR-1) % {} == 0'.format(args.frame_interval)],
+        stdin=find_proc.stdout,
+        stdout=subprocess.PIPE)
+    zbarimg_proc = subprocess.Popen(
+        ['parallel', '--bar', 'echo', '', ';', 'zbarimg', '-q', '--raw', '{}'],
+        stdin=awk_proc.stdout,
+        stdout=subprocess.PIPE,
+        universal_newlines=True)
+
+    def cleanup_procs():
+        find_proc.kill()
+        zbarimg_proc.kill()
+    atexit.register(cleanup_procs)
+
+    channel_set = set()
+    all_frame_counts = {}
+    current_frame = None
+    current_frame_counts = None
+    try:
+        for line in zbarimg_proc.stdout:
+            if len(line.strip()) == 0:
+                current_frame = None
+                continue
+            if current_frame is None:
+                current_frame = line.strip()
+                if current_frame not in all_frame_counts:
+                    all_frame_counts[current_frame] = {}
+                current_frame_counts = all_frame_counts[current_frame]
+            else:
+                channel = line.strip()
+                channel_set.add(channel)
+                current_frame_counts[channel] = \
+                    current_frame_counts.get(channel, 0) + 1
+    except KeyboardInterrupt:
+        pass
+
+    channel_set = tuple(sorted(channel_set))
+
+    sys.stdout.write('# frame_key')
+    for channel in channel_set:
+        sys.stdout.write(' ')
+        sys.stdout.write(channel)
+    sys.stdout.write('\n')
+
+    for frame_key in sorted(all_frame_counts):
+        sys.stdout.write(frame_key)
+        for channel in channel_set:
+            sys.stdout.write(' ')
+            sys.stdout.write(str(all_frame_counts[frame_key].get(channel, 0)))
+        sys.stdout.write('\n')
+
+if __name__ == '__main__':
+    main()
