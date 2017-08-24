@@ -1,0 +1,101 @@
+#!/usr/bin/env python3
+import argparse
+import functools
+import os.path
+import subprocess
+import sys
+import tempfile
+
+
+@functools.lru_cache()
+def get_image_size(filename):
+    '''
+    Gets the width and height for the given image as a tuple using
+    GraphicsMagick.
+    '''
+    args = ['gm', 'identify', filename, '-format', '%w %h']
+    return tuple(map(int, subprocess.check_output(args).split()))
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description= \
+            'Creates a video from the list of images read from stdin and '
+            'composites a QR code encoding the image name into each frame')
+
+    parser.add_argument(
+        '-r', '--image-root',
+        dest='image_root', type=str, default='.',
+        help='root path of the images listed in the input (default: .)')
+    parser.add_argument(
+        '-S', '--size',
+        dest='size', type=lambda x: tuple(int(y) for y in x.split('x')),
+        default=None,
+        help= \
+            'size of video as an "x" separated integer pair (e.g. '
+            '"1920x1080"), input images are forcefully resized to this '
+            '(default: size of first image in list)')
+    parser.add_argument(
+        '--frame-rate',
+        dest='frame_rate', type=float, default=8,
+        help='sets the output video framerate (default: 8)')
+    parser.add_argument(
+        '-o', '--output',
+        dest='output', type=str, required=True,
+        help='output file, "output.mp4" typically works nicely (required)')
+
+    args = parser.parse_args()
+
+    if args.size is not None and len(args.size) != 2:
+        raise RuntimeError(
+            '--size option must parse to a two item integer pair separated by '
+            'an x (size specified: {})'.format(args.size))
+
+    try:
+        image_list = [x.strip() for x in sys.stdin]
+    except BrokenPipeError:
+        pass
+
+    if len(image_list) == 0:
+        return 0
+
+    if args.size is None:
+        args.size = \
+            get_image_size(os.path.join(args.image_root, image_list[0]))
+
+    composite_script_file = tempfile.NamedTemporaryFile(mode='w', delete=False)
+    composite_script_file.write('#!/bin/bash\n')
+    for image in image_list:
+        image_path = os.path.join(args.image_root, image)
+        composite_script_file.write(
+            'bash -c "'
+                'qrencode -s 2 -m 1 -o - \'{}\' | '
+                'gm composite png:- \'{}\' -resize {}x{} png:-'
+            '"\n'.format(
+                image, image_path, args.size[0], args.size[1]))
+    composite_script_file.close()
+
+    proc1 = subprocess.Popen(
+        ['bash', composite_script_file.name],
+        stdout=subprocess.PIPE)
+
+    proc2 = subprocess.Popen(
+        [
+            'ffmpeg',
+            '-f', 'image2pipe', # images come in raw over the pipe
+            '-i', '-', # read from stdin
+            '-framerate', str(args.frame_rate), # sets output framerate
+            '-c:v', 'libx264', # H.264 encoding
+            '-pix_fmt', 'yuv420p', # specific pixel format, supports QuickTime
+            args.output,
+        ],
+        stdin=proc1.stdout)
+
+    try:
+        return proc2.wait()
+    except KeyboardInterrupt:
+        proc1.kill()
+        proc2.kill()
+
+if __name__ == '__main__':
+    main()
