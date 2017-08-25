@@ -59,12 +59,19 @@ def main():
             'folder specified (default: disabled, frames generated and piped '
             'directly to ffmpeg)')
     parser.add_argument(
+        '--saved-frames-extension',
+        dest='saved_frames_extension', type=str, default='png',
+        help= \
+            'file extension (without dot) of frames saved, only valid if '
+            '--saved-frames-folder is specified (default: png)')
+    parser.add_argument(
         '--use-existing-frames',
         dest='use_existing_frames', default=False, action='store_true',
         help= \
             'must be paired with --saved-frames-folder option, skips '
             'compositing the frames and simply creates a video from the '
-            'frames (named in "frame%%07d.png" format) in the folder '
+            'frames (named in "frame%%07d.png" format, with extension '
+            'modifiable using --saved-frames-extension) in the folder '
             'specified by --saved-frames-folder (default: disabled, do '
             'generate frames)')
     parser.add_argument(
@@ -138,7 +145,8 @@ def generate_frames(args, image_list, save_to_file):
         image_path = os.path.join(args.image_root, image)
         if save_to_file:
             output_path = os.path.join(
-                args.saved_frames_folder, 'frame{:07d}.png'.format(i))
+                args.saved_frames_folder,
+                'frame{:07d}.{}'.format(i, args.saved_frames_extension))
         else:
             output_path = 'png:-'
         command = (
@@ -156,7 +164,9 @@ def create_video_from_saved_frames(args):
         [
             'ffmpeg',
             '-framerate', str(args.frame_rate), # sets output framerate
-            '-i', os.path.join(args.saved_frames_folder, 'frame%07d.png'),
+            '-i', os.path.join(
+                args.saved_frames_folder,
+                'frame%07d.' + args.saved_frames_extension),
             '-r', str(args.frame_rate), # sets output framerate
             '-c:v', 'libx264', # H.264 encoding
             '-pix_fmt', 'yuv420p', # specific pixel format, supports QuickTime
