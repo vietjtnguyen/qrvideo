@@ -50,6 +50,24 @@ def main():
             'sets the "gravity" for where the QR code is composited (default: '
             'SouthWest)')
     parser.add_argument(
+        '--saved-frames-folder',
+        dest='saved_frames_folder', type=str, default=None,
+        help= \
+            'by default the QR compositing and frame resizing results are '
+            'piped directly to ffmpeg resulting in no intermediate frame '
+            'files, specifying this option enables saving the frames to the '
+            'folder specified (default: disabled, frames generated and piped '
+            'directly to ffmpeg)')
+    parser.add_argument(
+        '--use-existing-frames',
+        dest='use_existing_frames', default=False, action='store_true',
+        help= \
+            'must be paired with --saved-frames-folder option, skips '
+            'compositing the frames and simply creates a video from the '
+            'frames (named in "frame%%07d.png" format) in the folder '
+            'specified by --saved-frames-folder (default: disabled, do '
+            'generate frames)')
+    parser.add_argument(
         '-o', '--output',
         dest='output', type=str, required=True,
         help='output file, "output.mp4" typically works nicely (required)')
@@ -61,35 +79,98 @@ def main():
             '--size option must parse to a two item integer pair separated by '
             'an x (size specified: {})'.format(args.size))
 
+    if args.saved_frames_folder is None:
+        if args.use_existing_frames:
+            raise RuntimeError(
+                '--saved-frames-folder must be specified if '
+                '--use-existing-frames is specified')
+    else:
+        if not os.path.exists(args.saved_frames_folder):
+            raise RuntimeError(
+                '--saved-frames-folder folder does not exist ({})'.format(
+                    args.saved_frames_folder))
+
+    if not args.use_existing_frames:
+
+        try:
+            image_list = [x.strip() for x in sys.stdin]
+        except BrokenPipeError:
+            pass
+        if len(image_list) == 0:
+            return 0
+
+        if args.size is None:
+            args.size = \
+                get_image_size(os.path.join(args.image_root, image_list[0]))
+        args.size = 'x'.join(str(x) for x in args.size)
+
+    frames_saved_to_file = args.saved_frames_folder is not None
+
+
+    if frames_saved_to_file:
+        if not args.use_existing_frames:
+            returncode = generate_frames_to_file(args, image_list)
+            if returncode != 0:
+                return returncode
+        return create_video_from_saved_frames(args)
+    else:
+        proc = generate_frames_to_pipe(args, image_list)
+        return create_video_from_pipe(args, proc)
+
+def generate_frames_to_file(args, image_list):
+    proc = generate_frames(args, image_list, True)
     try:
-        image_list = [x.strip() for x in sys.stdin]
-    except BrokenPipeError:
-        pass
+        proc.wait()
+    except KeyboardInterrupt:
+        proc.kill()
+    return proc.returncode
 
-    if len(image_list) == 0:
-        return 0
+def generate_frames_to_pipe(args, image_list):
+    return generate_frames(args, image_list, False)
 
-    if args.size is None:
-        args.size = \
-            get_image_size(os.path.join(args.image_root, image_list[0]))
-
-    composite_script_file = tempfile.NamedTemporaryFile(mode='w', delete=False)
-    composite_script_file.write('#!/bin/bash\n')
-    for image in image_list:
-        image_path = os.path.join(args.image_root, image)
-        composite_script_file.write(
-            'bash -c "'
-                'qrencode -s 2 -m 1 -o - \'{}\' | '
-                'gm composite png:- -gravity {} \'{}\' -resize {}x{} png:-'
-            '"\n'.format(
-                image, args.gravity, image_path, args.size[0], args.size[1]))
-    composite_script_file.close()
-
-    proc1 = subprocess.Popen(
-        ['bash', composite_script_file.name],
+def generate_frames(args, image_list, save_to_file):
+    proc = subprocess.Popen(
+        ['parallel', '-k', '--bar', 'bash', '-c', '{}'],
+        stdin=subprocess.PIPE,
         stdout=subprocess.PIPE)
 
-    proc2 = subprocess.Popen(
+    for i, image in enumerate(image_list):
+        image_path = os.path.join(args.image_root, image)
+        if save_to_file:
+            output_path = os.path.join(
+                args.saved_frames_folder, 'frame{:07d}.png'.format(i))
+        else:
+            output_path = 'png:-'
+        command = (
+            'qrencode -s 2 -m 1 -o - "{}" | '
+            'gm composite png:- -gravity {} "{}" -resize {} {}'
+            '\n').format(
+                image, args.gravity, image_path, args.size, output_path)
+        proc.stdin.write(command.encode('utf8'))
+    proc.stdin.close()
+
+    return proc
+
+def create_video_from_saved_frames(args):
+    proc = subprocess.Popen(
+        [
+            'ffmpeg',
+            '-framerate', str(args.frame_rate), # sets output framerate
+            '-i', os.path.join(args.saved_frames_folder, 'frame%07d.png'),
+            '-r', str(args.frame_rate), # sets output framerate
+            '-c:v', 'libx264', # H.264 encoding
+            '-pix_fmt', 'yuv420p', # specific pixel format, supports QuickTime
+            args.output,
+        ])
+
+    try:
+        proc.wait()
+    except KeyboardInterrupt:
+        proc.kill()
+    return proc.returncode
+
+def create_video_from_pipe(args, input_proc):
+    proc = subprocess.Popen(
         [
             'ffmpeg',
             '-f', 'image2pipe', # images come in raw over the pipe
@@ -100,13 +181,14 @@ def main():
             '-pix_fmt', 'yuv420p', # specific pixel format, supports QuickTime
             args.output,
         ],
-        stdin=proc1.stdout)
+        stdin=input_proc.stdout)
 
     try:
-        return proc2.wait()
+        proc.wait()
     except KeyboardInterrupt:
-        proc1.kill()
-        proc2.kill()
+        proc.kill()
+        input_proc.kill()
+    return proc.returncode
 
 if __name__ == '__main__':
     main()
