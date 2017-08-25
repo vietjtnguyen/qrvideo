@@ -161,7 +161,8 @@ def create_video_from_saved_frames(args):
             '-c:v', 'libx264', # H.264 encoding
             '-pix_fmt', 'yuv420p', # specific pixel format, supports QuickTime
             args.output,
-        ])
+        ],
+        stdin=subprocess.DEVNULL)
 
     try:
         proc.wait()
