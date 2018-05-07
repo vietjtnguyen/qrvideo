@@ -11,10 +11,10 @@ from jinja2 import Template
 
 def main():
     parser = argparse.ArgumentParser(
-        description= \
-            'Starts an HTTP server that serves a browser based annotation '
-            'tool that displays QR codes containing some arbitrary text data '
-            'when a keyboard key is pressed.')
+        description='''
+            Starts an HTTP server that serves a browser based annotation tool
+            that displays QR codes containing some arbitrary text data when a
+            keyboard key is pressed.''')
 
     parser.add_argument(
         '-p', '--port',
@@ -23,9 +23,9 @@ def main():
     parser.add_argument(
         '-R', '--web-root',
         dest='web_root', default='../share/qrvideo/web',
-        help= \
-            'path to root of web browser files (default: '
-            '../share/qrvideo/web)')
+        help='''
+            path to root of web browser files (default:
+            ../share/qrvideo/web)''')
     parser.add_argument(
         '-S', '--size',
         dest='size', type=int, default=100,
@@ -34,13 +34,12 @@ def main():
         'channels',
         nargs='+',
         type=lambda x: tuple(y.strip() for y in x.split(':')),
-        help= \
-            'channels to make available in annotator, specified as a two item '
-            'comma separated list where the first item is the key character '
-            'to press to activate that channel and the second item is the '
-            'text content of the QR code displayed for the channel when the '
-            'key character is pressed; for example: "r:red", "g:green", '
-            '"b:blue"')
+        help='''
+            channels to make available in annotator, specified as a two item
+            comma separated list where the first item is the key character to
+            press to activate that channel and the second item is the text
+            content of the QR code displayed for the channel when the key
+            character is pressed; for example: "r:red", "g:green", "b:blue"''')
 
     args = parser.parse_args()
 
@@ -53,7 +52,7 @@ def main():
 
     session_web_root = tempfile.TemporaryDirectory()
     session_index_html_path = os.path.join(session_web_root.name, 'index.html')
-    session_index_html = open(session_index_html_path , 'w')
+    session_index_html = open(session_index_html_path, 'w')
     session_index_html.write(template.render(**{
         'channels': [
             {'key': x[0], 'text': x[1]} for x in args.channels
@@ -75,6 +74,7 @@ def main():
     except KeyboardInterrupt:
         pass
     httpd.server_close()
+
 
 if __name__ == '__main__':
     main()

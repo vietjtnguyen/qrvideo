@@ -4,7 +4,6 @@ import functools
 import os.path
 import subprocess
 import sys
-import tempfile
 
 
 @functools.lru_cache()
@@ -19,9 +18,9 @@ def get_image_size(filename):
 
 def main():
     parser = argparse.ArgumentParser(
-        description= \
-            'Creates a video from the list of images read from stdin and '
-            'composites a QR code encoding the image name into each frame')
+        description='''
+            Creates a video from the list of images read from stdin and
+            composites a QR code encoding the image name into each frame''')
 
     parser.add_argument(
         '-r', '--image-root',
@@ -31,10 +30,10 @@ def main():
         '-S', '--size',
         dest='size', type=lambda x: tuple(int(y) for y in x.split('x')),
         default=None,
-        help= \
-            'size of video as an "x" separated integer pair (e.g. '
-            '"1920x1080"), input images are forcefully resized to this '
-            '(default: size of first image in list)')
+        help='''
+            size of video as an "x" separated integer pair (e.g.  "1920x1080"),
+            input images are forcefully resized to this (default: size of first
+            image in list)''')
     parser.add_argument(
         '--frame-rate',
         dest='frame_rate', type=float, default=4,
@@ -46,34 +45,33 @@ def main():
             'NorthWest', 'North', 'NorthEast', 'West', 'Center', 'East',
             'SouthWest', 'South', 'SouthEast',
         ],
-        help= \
-            'sets the "gravity" for where the QR code is composited (default: '
-            'SouthWest)')
+        help='''
+            sets the "gravity" for where the QR code is composited (default:
+            SouthWest)''')
     parser.add_argument(
         '--saved-frames-folder',
         dest='saved_frames_folder', type=str, default=None,
-        help= \
-            'by default the QR compositing and frame resizing results are '
-            'piped directly to ffmpeg resulting in no intermediate frame '
-            'files, specifying this option enables saving the frames to the '
-            'folder specified (default: disabled, frames generated and piped '
-            'directly to ffmpeg)')
+        help='''
+            by default the QR compositing and frame resizing results are piped
+            directly to ffmpeg resulting in no intermediate frame files,
+            specifying this option enables saving the frames to the folder
+            specified (default: disabled, frames generated and piped directly
+            to ffmpeg)''')
     parser.add_argument(
         '--saved-frames-extension',
         dest='saved_frames_extension', type=str, default='png',
-        help= \
-            'file extension (without dot) of frames saved, only valid if '
-            '--saved-frames-folder is specified (default: png)')
+        help='''
+            file extension (without dot) of frames saved, only valid if
+            --saved-frames-folder is specified (default: png)''')
     parser.add_argument(
         '--use-existing-frames',
         dest='use_existing_frames', default=False, action='store_true',
-        help= \
-            'must be paired with --saved-frames-folder option, skips '
-            'compositing the frames and simply creates a video from the '
-            'frames (named in "frame%%07d.png" format, with extension '
-            'modifiable using --saved-frames-extension) in the folder '
-            'specified by --saved-frames-folder (default: disabled, do '
-            'generate frames)')
+        help='''
+            must be paired with --saved-frames-folder option, skips compositing
+            the frames and simply creates a video from the frames (named in
+            "frame%%07d.png" format, with extension modifiable using
+            --saved-frames-extension) in the folder specified by
+            --saved-frames-folder (default: disabled, do generate frames)''')
     parser.add_argument(
         '-o', '--output',
         dest='output', type=str, required=True,
@@ -113,7 +111,6 @@ def main():
 
     frames_saved_to_file = args.saved_frames_folder is not None
 
-
     if frames_saved_to_file:
         if not args.use_existing_frames:
             returncode = generate_frames_to_file(args, image_list)
@@ -124,6 +121,7 @@ def main():
         proc = generate_frames_to_pipe(args, image_list)
         return create_video_from_pipe(args, proc)
 
+
 def generate_frames_to_file(args, image_list):
     proc = generate_frames(args, image_list, True)
     try:
@@ -132,8 +130,10 @@ def generate_frames_to_file(args, image_list):
         proc.kill()
     return proc.returncode
 
+
 def generate_frames_to_pipe(args, image_list):
     return generate_frames(args, image_list, False)
+
 
 def generate_frames(args, image_list, save_to_file):
     proc = subprocess.Popen(
@@ -159,17 +159,18 @@ def generate_frames(args, image_list, save_to_file):
 
     return proc
 
+
 def create_video_from_saved_frames(args):
     proc = subprocess.Popen(
         [
             'ffmpeg',
-            '-framerate', str(args.frame_rate), # sets output framerate
+            '-framerate', str(args.frame_rate),  # sets output framerate
             '-i', os.path.join(
                 args.saved_frames_folder,
                 'frame%07d.' + args.saved_frames_extension),
-            '-r', str(args.frame_rate), # sets output framerate
-            '-c:v', 'libx264', # H.264 encoding
-            '-pix_fmt', 'yuv420p', # specific pixel format, supports QuickTime
+            '-r', str(args.frame_rate),  # sets output framerate
+            '-c:v', 'libx264',  # H.264 encoding
+            '-pix_fmt', 'yuv420p',  # specific pixel format, supports QuickTime
             args.output,
         ],
         stdin=subprocess.DEVNULL)
@@ -180,16 +181,17 @@ def create_video_from_saved_frames(args):
         proc.kill()
     return proc.returncode
 
+
 def create_video_from_pipe(args, input_proc):
     proc = subprocess.Popen(
         [
             'ffmpeg',
-            '-f', 'image2pipe', # images come in raw over the pipe
-            '-framerate', str(args.frame_rate), # sets output framerate
-            '-i', '-', # read from stdin
-            '-r', str(args.frame_rate), # sets output framerate
-            '-c:v', 'libx264', # H.264 encoding
-            '-pix_fmt', 'yuv420p', # specific pixel format, supports QuickTime
+            '-f', 'image2pipe',  # images come in raw over the pipe
+            '-framerate', str(args.frame_rate),  # sets output framerate
+            '-i', '-',  # read from stdin
+            '-r', str(args.frame_rate),  # sets output framerate
+            '-c:v', 'libx264',  # H.264 encoding
+            '-pix_fmt', 'yuv420p',  # specific pixel format, supports QuickTime
             args.output,
         ],
         stdin=input_proc.stdout)
@@ -200,6 +202,7 @@ def create_video_from_pipe(args, input_proc):
         proc.kill()
         input_proc.kill()
     return proc.returncode
+
 
 if __name__ == '__main__':
     main()
